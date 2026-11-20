@@ -60,7 +60,7 @@ input.code{text-transform:uppercase;letter-spacing:5px;text-align:center;font-we
 .gamegrid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:22px;align-items:start}
 .boardcol{display:flex;justify-content:center}
 svg.board{width:min(100%,calc(100vh - 100px));height:auto;user-select:none;display:block}
-svg.board [data-cell],svg.board [data-stone],svg.board [data-slot]{cursor:pointer}
+svg.board [data-cell],svg.board [data-stone],svg.board [data-slot],svg.board [data-brk]{cursor:pointer}
 svg.board rect.slotvis{transition:opacity .1s}
 svg.board g.slot:hover rect.slotvis{opacity:.85!important}
 .side{display:flex;flex-direction:column;gap:12px;position:sticky;top:16px}
@@ -79,7 +79,7 @@ svg.board g.slot:hover rect.slotvis{opacity:.85!important}
 <body>
 <div class="app">
   <header>
-    <h1><span class="logo"></span>벽바둑 <small>온라인 · 2~8명</small></h1>
+    <h1><span class="logo"></span>벽바둑 <small>온라인 · 2~10명</small></h1>
     <div class="hdr-right"><span class="conn hidden" id="connBadge"></span><button class="link" id="rulesBtn">규칙</button></div>
   </header>
   <div id="view"></div>
@@ -89,15 +89,17 @@ svg.board g.slot:hover rect.slotvis{opacity:.85!important}
   <h2>벽바둑 규칙</h2>
   <p>각자 말을 움직이고 벽을 세워서, 남과 섞이지 않은 나만의 영역을 가장 넓게 만드는 게임이에요.</p>
   <h3>1. 말 놓기</h3>
-  <ul><li>순서대로 한 개씩 빈칸에 말을 놓아요. 한 바퀴 돌면 역순으로 돌아와요 (1→8, 8→1).</li><li>한 사람당 말 개수는 방장이 정해요 (기본 2개).</li></ul>
+  <ul><li>순서대로 한 개씩 빈칸에 말을 놓아요. 한 바퀴 돌면 역순으로 돌아와요 (1→10, 10→1).</li><li>한 사람당 말 개수는 방장이 정해요 (기본 2개).</li></ul>
   <h3>2. 이동 + 벽</h3>
   <ul><li>내 차례에 말 하나를 상하좌우로 0~2칸 움직여요. 꺾어서 가도 되고, 제자리에 있어도 돼요.</li><li>벽이나 다른 말은 넘을 수 없어요.</li><li>움직인 말이 서 있는 칸의 네 변 중 한 곳에 반드시 내 벽을 세워요.</li></ul>
+  <h3>🔨 벽 부수기 (방장 설정, 기본 1회)</h3>
+  <ul><li>한 게임에 정해진 횟수만큼, 내 차례에 내 말과 맞닿은 벽 하나를 부술 수 있어요. 누구의 벽이든 돼요.</li><li>부순 다음에는 평소처럼 말을 움직이고 벽을 세워요.</li><li>혼자 갇혀 영역이 확정됐어도, 부수기가 남아 있으면 차례가 와서 탈출할 수 있어요.</li></ul>
   <h3>3. 끝과 점수</h3>
   <ul><li>모든 구역이 한 사람의 말만 품게 되면 게임이 끝나요.</li><li>내 말만 있는 구역의 칸 수가 점수예요. 말이 없는 구역은 누구의 것도 아니에요.</li><li>점수가 같으면 가장 큰 구역 하나가 더 넓은 사람이 이겨요.</li><li>내 말이 모두 혼자 갇히면 영역이 확정되고, 이후 차례는 자동으로 건너뛰어요.</li></ul>
   <h3>조작</h3>
   <ul><li>내 말 클릭 → 갈 칸 클릭 (말을 한 번 더 누르면 제자리) → 벽 세울 변 클릭 → 확정</li><li>단축키: <b>Enter</b> 확정, <b>Esc</b> 취소</li></ul>
   <h3>판 크기 (자동)</h3>
-  <ul><li>2~4명 7×7, 5~6명 9×9, 7~8명 11×11</li></ul>
+  <ul><li>2~4명 7×7, 5~6명 9×9, 7~8명 11×11, 9~10명 13×13</li></ul>
   <button class="btn" id="rulesClose" style="margin-top:12px">닫기</button>
 </div></div>
 
@@ -119,11 +121,11 @@ svg.board g.slot:hover rect.slotvis{opacity:.85!important}
 </script>
 <script>
 // ================= Engine =================
-const COLORS=['#e5484d','#3e63dd','#30a46c','#f0a020','#8e4ec6','#f76b15','#12a594','#d6409f'];
-const CNAMES=['빨강','파랑','초록','노랑','보라','주황','청록','분홍'];
+const COLORS=['#e5484d','#3e63dd','#30a46c','#f0a020','#8e4ec6','#f76b15','#12a594','#d6409f','#8a5a3b','#475569'];
+const CNAMES=['빨강','파랑','초록','노랑','보라','주황','청록','분홍','갈색','회색'];
 const D4=[[-1,0],[1,0],[0,-1],[0,1]];
-function autoSize(P){ return P<=4?7:P<=6?9:11; }
-function newState(P,N,K){ return {N,P,K,stones:[],vw:Array(N*(N-1)).fill(0),hw:Array(N*(N-1)).fill(0),phase:'place',pi:0,turn:0,last:null,out:Array(P).fill(0),moves:0,result:null}; }
+function autoSize(P){ return P<=4?7:P<=6?9:P<=8?11:13; }
+function newState(P,N,K,B=1){ return {N,P,K,brk:Array(P).fill(B),broke:null,stones:[],vw:Array(N*(N-1)).fill(0),hw:Array(N*(N-1)).fill(0),phase:'place',pi:0,turn:0,last:null,out:Array(P).fill(0),moves:0,result:null}; }
 function placeOrder(P,K){ const o=[]; for(let k=0;k<K;k++) for(let i=0;i<P;i++) o.push(k%2?P-1-i:i); return o; }
 function actor(st){ return st.phase==='place' ? placeOrder(st.P,st.K)[st.pi] : st.turn; }
 // -1 board edge, 0 open, >0 wall by player (value-1)
@@ -154,6 +156,24 @@ function slots(st,cell){
     out.push(dr===0?{t:'v',i:r*(N-1)+Math.min(c,c+dc)}:{t:'h',i:Math.min(r,r+dr)*N+c});
   return out;
 }
+function breakable(st,p){
+  const N=st.N, out=[], seen=new Set();
+  st.stones.forEach(s=>{ if(s.p!==p) return;
+    for(const [dr,dc] of D4) if(wallBetween(st,s.r,s.c,dr,dc)>0){
+      const w=dr===0?{t:'v',i:s.r*(N-1)+Math.min(s.c,s.c+dc)}:{t:'h',i:Math.min(s.r,s.r+dr)*N+s.c};
+      const k=w.t+w.i; if(!seen.has(k)){ seen.add(k); out.push(w); }
+    }
+  });
+  return out;
+}
+function canBreak(st,p){ return !st.broke && ((st.brk||[])[p]>0) && breakable(st,p).length>0; }
+function doBreak(st,w){
+  const p=st.turn, arr=w.t==='v'?st.vw:st.hw, old=arr[w.i];
+  arr[w.i]=0; st.brk[p]--; st.broke={t:w.t,i:w.i,p,v:old};
+}
+function hasMove(st,p){ return st.stones.some((s,i)=>s.p===p&&canMove(st,i)); }
+function canPass(st,p){ return st.phase==='move' && (tally(st).done[p] || !hasMove(st,p)); }
+function doPass(st){ const p=st.turn; if(tally(st).done[p]) st.brk[p]=0; st.last=null; st.broke=null; advance(st); }
 function canMove(st,si){ return reach(st,si).some(c=>slots(st,c).length>0); }
 function tally(st){
   const N=st.N, id=new Int16Array(N*N).fill(-1), regs=[], occ=new Map();
@@ -193,8 +213,10 @@ function advance(st){
   if(t.over){ finish(st,t); return; }
   for(let k=1;k<=st.P;k++){
     const p=(st.turn+k)%st.P;
-    if(st.out[p]||t.done[p]) continue;
-    if(st.stones.some((s,i)=>s.p===p&&canMove(st,i))){ st.turn=p; return; }
+    if(st.out[p]) continue;
+    const cb=((st.brk||[])[p]>0) && breakable(st,p).length>0;
+    if(t.done[p] && !cb) continue;
+    if(cb || st.stones.some((s,i)=>s.p===p&&canMove(st,i))){ st.turn=p; return; }
   }
   finish(st,t);
 }
@@ -207,14 +229,14 @@ function doMove(st,si,dest,slot){
   const N=st.N, s=st.stones[si], from=s.r*N+s.c;
   s.r=(dest/N)|0; s.c=dest%N;
   (slot.t==='v'?st.vw:st.hw)[slot.i]=s.p+1;
-  st.last={s:si,from,to:dest,w:slot,p:s.p}; st.moves++;
+  st.last={s:si,from,to:dest,w:slot,p:s.p,broke:st.broke||null}; st.broke=null; st.moves++;
   advance(st);
 }
 function skipTurn(st){
   if(st.phase==='place'){
     const occ=occMap(st), empty=[]; for(let i=0;i<st.N*st.N;i++) if(!occ.has(i)) empty.push(i);
     doPlace(st, empty[Math.random()*empty.length|0]);
-  } else if(st.phase==='move'){ st.last=null; advance(st); }
+  } else if(st.phase==='move'){ st.last=null; st.broke=null; advance(st); }
 }
 const clone=o=>JSON.parse(JSON.stringify(o));
 
@@ -230,7 +252,7 @@ let view='home', err='', busy=false;
 // online
 let room=null, game=null, seats=[], isHost=false, connState='';
 // local
-let local=null, localHist=[], localSetup={P:6,size:'auto',K:2,names:[]};
+let local=null, localHist=[], localSetup={P:6,size:'auto',K:2,B:1,names:[]};
 // selection
 let sel=null;
 let resultShownFor=null, wasMyTurn=false;
@@ -269,7 +291,7 @@ function homeHTML(){
   return `<div class="two">
   <div class="card">
     <h2>온라인으로 같이 하기</h2>
-    <p>로그인 없이, 방 코드만으로 최대 8명이 각자 컴퓨터에서 들어와요.</p>
+    <p>로그인 없이, 방 코드만으로 최대 10명이 각자 컴퓨터에서 들어와요.</p>
     <div class="lbl">내 이름</div>
     <input type="text" id="nameIn" maxlength="12" placeholder="닉네임" value="${esc(myName)}">
     <div style="height:14px"></div>
@@ -282,7 +304,7 @@ function homeHTML(){
   </div>
   <div class="card">
     <h2>한 컴퓨터로 하기</h2>
-    <p>한 화면에서 돌아가며 2~8명이 같이 해요. 인터넷 연결이 없어도 돼요.</p>
+    <p>한 화면에서 돌아가며 2~10명이 같이 해요. 인터넷 연결이 없어도 돼요.</p>
     <button class="btn sec" id="localBtn">시작하기</button>
   </div></div>`;
 }
@@ -291,9 +313,10 @@ function localSetupHTML(){
   const s=localSetup;
   return `<div class="narrow"><div class="card">
     <h2>한 컴퓨터로 하기</h2>
-    <div class="lbl">인원</div>${segHTML('lsP',[2,3,4,5,6,7,8].map(n=>[n,n+'명']),s.P)}
-    <div class="lbl">판 크기</div>${segHTML('lsN',[['auto','자동 ('+autoSize(s.P)+')'],[7,'7×7'],[9,'9×9'],[11,'11×11']],s.size)}
+    <div class="lbl">인원</div>${segHTML('lsP',[2,3,4,5,6,7,8,9,10].map(n=>[n,n+'명']),s.P)}
+    <div class="lbl">판 크기</div>${segHTML('lsN',[['auto','자동 ('+autoSize(s.P)+')'],[7,'7×7'],[9,'9×9'],[11,'11×11'],[13,'13×13']],s.size)}
     <div class="lbl">1인당 말</div>${segHTML('lsK',[[1,'1개'],[2,'2개'],[3,'3개']],s.K)}
+    <div class="lbl">🔨 벽 부수기</div>${segHTML('lsB',[[0,'없음'],[1,'1회'],[2,'2회']],s.B)}
     <div class="lbl">이름 (비워 두면 색 이름)</div>
     <div class="plist">${Array.from({length:s.P},(_,i)=>`<div class="pl"><span class="sw" style="background:${COLORS[i]}"></span><input type="text" data-ln="${i}" maxlength="10" placeholder="${CNAMES[i]}" value="${esc(s.names[i]||'')}" style="padding:6px 8px;font-size:14px"></div>`).join('')}</div>
     <div style="height:16px"></div>
@@ -304,7 +327,7 @@ function lobbyHTML(){
   if(!game) return `<div class="narrow"><div class="card"><p>방에 들어가는 중…</p><div class="err">${esc(err)}</div><button class="btn sec" id="leaveBtn">나가기</button></div></div>`;
   const amHost=game.host===uid, st=game.settings||{};
   const active=seats.filter(s=>s.on!==false);
-  const n=Math.min(active.length,8);
+  const n=Math.min(active.length,10);
   return `<div class="two">
     <div class="card" style="display:flex;flex-direction:column;gap:6px;justify-content:center;text-align:center">
       <div class="note">방 코드</div>
@@ -314,11 +337,12 @@ function lobbyHTML(){
       <button class="btn sec small" id="copyBtn">초대 문구 복사</button>
     </div>
     <div class="card">
-      <h2>참가자 ${active.length}/8</h2>
-      <div class="plist">${active.map((s,i)=>`<div class="pl"><span class="sw" style="background:${i<8?COLORS[i]:'#bbb'}"></span><span class="nm">${esc(s.name||'이름 없음')}</span>${s.id===game.host?'<span class="tag">방장</span>':''}${s.id===uid?'<span class="tag">나</span>':''}${i>=8?'<span class="tag">대기</span>':''}</div>`).join('')||'<div class="note">아직 아무도 없어요</div>'}</div>
+      <h2>참가자 ${active.length}/10</h2>
+      <div class="plist">${active.map((s,i)=>`<div class="pl"><span class="sw" style="background:${i<10?COLORS[i]:'#bbb'}"></span><span class="nm">${esc(s.name||'이름 없음')}</span>${s.id===game.host?'<span class="tag">방장</span>':''}${s.id===uid?'<span class="tag">나</span>':''}${i>=10?'<span class="tag">대기</span>':''}</div>`).join('')||'<div class="note">아직 아무도 없어요</div>'}</div>
       <div class="note" style="margin-top:8px">색과 순서는 시작할 때 무작위로 정해져요.</div>
-      <div class="lbl">판 크기</div>${segHTML('rsN',[['auto','자동 ('+autoSize(Math.max(n,2))+')'],[7,'7×7'],[9,'9×9'],[11,'11×11']],st.size||'auto',!amHost)}
+      <div class="lbl">판 크기</div>${segHTML('rsN',[['auto','자동 ('+autoSize(Math.max(n,2))+')'],[7,'7×7'],[9,'9×9'],[11,'11×11'],[13,'13×13']],st.size||'auto',!amHost)}
       <div class="lbl">1인당 말</div>${segHTML('rsK',[[1,'1개'],[2,'2개'],[3,'3개']],st.stones||2,!amHost)}
+      <div class="lbl">🔨 벽 부수기</div>${segHTML('rsB',[[0,'없음'],[1,'1회'],[2,'2회']],st.breaks??1,!amHost)}
       <div style="height:16px"></div>
       ${amHost?`<button class="btn" id="startBtn" ${n<2?'disabled':''}>${n<2?'2명 이상 모이면 시작할 수 있어요':'게임 시작 ('+n+'명)'}</button>`:`<div class="banner">방장이 시작하기를 기다리는 중이에요…</div>`}
       <div class="err">${esc(err)}</div>
@@ -333,7 +357,8 @@ function gameHTML(){
   let sub='';
   if(st.phase==='place') sub=`말 놓기 ${st.pi+1}/${st.P*st.K} · 빈칸을 클릭하세요`;
   else if(st.phase==='move'){
-    if(!sel) sub='움직일 말을 클릭하세요';
+    if(sel&&sel.brk) sub=sel.brkSlot?'확정하면 벽이 부서져요 (Enter)':'부술 벽을 클릭하세요 (내 말과 맞닿은 벽)';
+    else if(!sel) sub=st.broke?'벽을 부쉈어요. 이제 말을 움직이세요':(!hasMove(st,a)?'움직일 수 있는 말이 없어요. 벽을 부수거나 넘기세요':(t.done[a]?'영역이 확정됐어요. 벽을 부숴 탈출하거나 넘기세요':'움직일 말을 클릭하세요'));
     else if(sel.dest==null) sub='갈 칸을 클릭하세요 (말을 다시 누르면 제자리)';
     else if(!sel.slot) sub='벽을 세울 변을 클릭하세요';
     else sub='확정하세요 (Enter)';
@@ -347,18 +372,21 @@ function gameHTML(){
     const who = view==='local' ? name(a)+' 차례' : (mine ? '내 차례예요!' : name(a)+' 차례');
     bar=`<div class="turnbar ${mine&&view!=='local'?'mine':''}" style="--c:${COLORS[a]}"><span class="sw"></span><div>${who}<div class="sub">${mine?sub:(st.phase==='place'?'말을 놓는 중…':'생각 중…')}</div></div></div>`;
   }
-  const needConfirm = mine && sel && ((sel.place!=null) || sel.slot);
+  const needConfirm = mine && sel && ((sel.place!=null) || sel.slot || sel.brkSlot);
+  const showBrk = mine && st.phase==='move' && canBreak(st,a) && (!sel||sel.brk);
   const amHost = view==='game' && game.host===uid;
   const offline=id=>view==='game'&&isHost&&id&&id!==uid&&!(seats.find(s=>s.id===id)?.on);
   return `<div class="gamegrid">
   <div class="boardcol"><svg class="board" id="board"></svg></div>
   <div class="side">
     ${bar}
+    ${mine&&st.phase==='move'&&!st.broke&&!sel&&canPass(st,a)?`<button class="btn sec" id="passBtn">넘기기${t.done[a]?' (부수기 포기)':''}</button>`:''}
+    ${showBrk?`<button class="btn ${sel&&sel.brk?'':'sec'}" id="brkBtn">${sel&&sel.brk?'벽 부수기 취소':'🔨 벽 부수기 (남은 '+st.brk[a]+'회)'}</button>`:''}
     <div class="confirm ${needConfirm?'':'hidden'}"><button class="btn sec" id="cancelBtn">취소<span class="kbd">Esc</span></button><button class="btn" id="okBtn">확정<span class="kbd">Enter</span></button></div>
     ${view==='game'&&connState==='bad'?`<div class="banner">방장과 연결이 끊겼어요. 다시 연결하는 중이에요…</div>`:''}
     <div class="card" style="padding:16px">
       <h2 style="display:flex;justify-content:space-between;margin-bottom:10px"><span>확정 영역</span><span class="note" style="font-weight:600">${st.N}×${st.N}${view==='game'?' · 방 '+esc(room):''}</span></h2>
-      <div class="plist">${players.map((pl,p)=>`<div class="pl ${p===a?'turn':''} ${st.out[p]?'out':''}" style="--c:${COLORS[p]}"><span class="sw" style="background:${COLORS[p]}"></span><span class="nm">${name(p)}</span>${view==='game'&&pl.id===uid?'<span class="tag">나</span>':''}${offline(pl.id)?'<span class="tag off">연결 끊김</span>':''}${st.phase==='move'&&t.done[p]&&!st.out[p]?'<span class="tag">완성</span>':''}${st.out[p]?'<span class="tag">제외</span>':''}<span class="sc">${t.score[p]}</span></div>`).join('')}</div>
+      <div class="plist">${players.map((pl,p)=>`<div class="pl ${p===a?'turn':''} ${st.out[p]?'out':''}" style="--c:${COLORS[p]}"><span class="sw" style="background:${COLORS[p]}"></span><span class="nm">${name(p)}</span>${view==='game'&&pl.id===uid?'<span class="tag">나</span>':''}${offline(pl.id)?'<span class="tag off">연결 끊김</span>':''}${st.phase==='move'&&t.done[p]&&!st.out[p]?'<span class="tag">완성</span>':''}${st.out[p]?'<span class="tag">제외</span>':''}${st.phase!=='over'&&(st.brk||[])[p]>0?'<span class="tag" title="벽 부수기 남음">🔨'+st.brk[p]+'</span>':''}<span class="sc">${t.score[p]}</span></div>`).join('')}</div>
       <div class="note" style="margin-top:8px">숫자는 지금 내 말만 있는 구역의 칸 수예요.</div>
     </div>
     ${view==='local'?`<div class="row"><button class="btn sec small" id="undoBtn" ${localHist.length?'':'disabled'}>무르기</button><button class="btn sec small" id="exitBtn">그만하기</button></div>`:''}
@@ -391,6 +419,14 @@ function drawBoard(){
   }
   for(let k=0;k<st.vw.length;k++) if(st.vw[k]) h+=wallRect('v',k,N,COLORS[st.vw[k]-1],L&&L.w&&L.w.t==='v'&&L.w.i===k);
   for(let k=0;k<st.hw.length;k++) if(st.hw[k]) h+=wallRect('h',k,N,COLORS[st.hw[k]-1],L&&L.w&&L.w.t==='h'&&L.w.i===k);
+  const gb=st.broke||(L&&L.broke);
+  if(gb) h+=ghostWall(gb.t,gb.i,N,COLORS[gb.v-1]);
+  if(mine&&sel&&sel.brk){
+    for(const w of breakable(st,actor(st))){
+      const chosen=sel.brkSlot&&sel.brkSlot.t===w.t&&sel.brkSlot.i===w.i;
+      h+=`<g class="slot">${wallRect(w.t,w.i,N,'#24211d',false,chosen?.9:.25,`data-brk="${w.t}${w.i}"`,true)}</g>`;
+    }
+  }
   st.stones.forEach((s,i)=>{
     let cell=s.r*N+s.c;
     if(sel&&sel.s===i&&sel.dest!=null) cell=sel.dest;
@@ -408,6 +444,12 @@ function drawBoard(){
     }
   }
   svg.innerHTML=h;
+}
+function ghostWall(t,k,N,col){
+  let x,y,w,hh;
+  if(t==='v'){ const r=(k/(N-1))|0, c=k%(N-1); x=PAD+(c+1)*CS-3.5; y=PAD+r*CS+1; w=7; hh=CS-2; }
+  else { const r=(k/N)|0, c=k%N; x=PAD+c*CS+1; y=PAD+(r+1)*CS-3.5; w=CS-2; hh=7; }
+  return `<rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="3" fill="none" stroke="${col||'#888'}" stroke-width="1.6" stroke-dasharray="3 2.5" opacity=".9"/>`;
 }
 function ctr(cell,N){ return [PAD+(cell%N)*CS+CS/2, PAD+((cell/N)|0)*CS+CS/2]; }
 function wallRect(t,k,N,col,hl,op=1,attr='',hit=false){
@@ -465,6 +507,10 @@ function bind(){
   segs('lsP',v=>{ localSetup.P=+v; render(); });
   segs('lsN',v=>{ localSetup.size=v==='auto'?'auto':+v; render(); });
   segs('lsK',v=>{ localSetup.K=+v; render(); });
+  segs('lsB',v=>{ localSetup.B=+v; render(); });
+  segs('rsB',v=>send({k:'settings',patch:{breaks:+v}}));
+  on('passBtn',()=>{ if(view==='local'){ localHist.push(local.st); const ns=clone(local.st); doPass(ns); local.st=ns; sel=null; render(); } else send({k:'pass',seq:game.seq}); });
+  on('brkBtn',()=>{ sel = sel&&sel.brk ? null : {brk:true}; render(); });
   document.querySelectorAll('[data-ln]').forEach(inp=>inp.oninput=()=>{ localSetup.names[+inp.dataset.ln]=inp.value.trim(); });
   on('backBtn',()=>{ view='home'; render(); });
   on('lsStart',startLocal);
@@ -482,7 +528,7 @@ function bind(){
   on('kickBtn',()=>send({k:'kick'}));
   on('lobbyBtn',()=>send({k:'lobby'}));
 }
-function cancelSel(){ if(!sel) return; if(sel.slot) sel.slot=null; else if(sel.dest!=null){ sel.dest=null; } else sel=null; render(); }
+function cancelSel(){ if(!sel) return; if(sel.brk){ if(sel.brkSlot) sel.brkSlot=null; else sel=null; render(); return; } if(sel.slot) sel.slot=null; else if(sel.dest!=null){ sel.dest=null; } else sel=null; render(); }
 document.addEventListener('keydown',e=>{
   if(e.target&&e.target.tagName==='INPUT') return;
   if(view!=='game'&&view!=='local') return;
@@ -492,7 +538,11 @@ document.addEventListener('keydown',e=>{
 function onBoard(e){
   if(!myTurn()) return;
   const c=cur(), st=c.st, me=actor(st);
-  const tgt=e.target.closest('[data-slot],[data-stone],[data-cell]'); if(!tgt){ sel=null; render(); return; }
+  const tgt=e.target.closest('[data-brk],[data-slot],[data-stone],[data-cell]'); if(!tgt){ if(!(sel&&sel.brk)){ sel=null; render(); } return; }
+  if(sel&&sel.brk){
+    if(tgt.dataset.brk!=null){ sel.brkSlot={t:tgt.dataset.brk[0], i:+tgt.dataset.brk.slice(1)}; render(); }
+    return;
+  }
   if(st.phase==='place'){
     if(tgt.dataset.cell==null) return;
     const cell=+tgt.dataset.cell;
@@ -524,10 +574,11 @@ function commit(){
   if(!sel||!myTurn()) return;
   if(view==='local'){
     const ns=clone(local.st);
-    if(sel.place!=null) doPlace(ns,sel.place); else if(sel.slot) doMove(ns,sel.s,sel.dest,sel.slot); else return;
+    if(sel.brkSlot) doBreak(ns,sel.brkSlot); else if(sel.place!=null) doPlace(ns,sel.place); else if(sel.slot) doMove(ns,sel.s,sel.dest,sel.slot); else return;
     localHist.push(local.st); local.st=ns; sel=null; render(); return;
   }
-  if(sel.place!=null) send({k:'place',cell:sel.place,seq:game.seq});
+  if(sel.brkSlot) send({k:'break',w:sel.brkSlot,seq:game.seq});
+  else if(sel.place!=null) send({k:'place',cell:sel.place,seq:game.seq});
   else if(sel.slot) send({k:'move',s:sel.s,dest:sel.dest,slot:sel.slot,seq:game.seq});
   else return;
   sel=null; render();
@@ -536,7 +587,7 @@ function commit(){
 // ================= Local =================
 function startLocal(){
   const s=localSetup, N=s.size==='auto'?autoSize(s.P):s.size;
-  local={players:Array.from({length:s.P},(_,i)=>({name:s.names[i]||CNAMES[i]})), st:newState(s.P,N,s.K)};
+  local={players:Array.from({length:s.P},(_,i)=>({name:s.names[i]||CNAMES[i]})), st:newState(s.P,N,s.K,s.B)};
   localHist=[]; sel=null; resultShownFor=null; view='local'; render();
 }
 
@@ -571,7 +622,7 @@ function startHost(code, restore, tries){
   p.on('open',()=>{
     opened=true; peer=p; isHost=true; room=code; busy=false; connState='ok'; retries=0;
     if(restore){ game=restore.game; seats=restore.seats.map(s=>({...s,on:s.id===uid})); }
-    else{ game={code,host:uid,status:'lobby',settings:{size:'auto',stones:2},players:[],st:null,seq:0}; seats=[{id:uid,name:myName,at:Date.now(),on:true}]; }
+    else{ game={code,host:uid,status:'lobby',settings:{size:'auto',stones:2,breaks:1},players:[],st:null,seq:0}; seats=[{id:uid,name:myName,at:Date.now(),on:true}]; }
     LS.set('wg_room',code);
     view = game.status==='play'&&game.st ? 'game':'lobby';
     saveHost(); render(); wake();
@@ -649,16 +700,29 @@ function hostApply(id,a){
       const ns=clone(st); doMove(ns,si,dest,ok); bump(ns); return;
     }
   }
+  if(a.k==='pass'){
+    if(g.status!=='play'||!g.st||g.st.phase!=='move') return;
+    if(a.seq!=null&&a.seq!==g.seq) return;
+    const st=g.st, p=actor(st); if(g.players[p]?.id!==id||st.broke||!canPass(st,p)) return;
+    const ns=clone(st); doPass(ns); bump(ns); return;
+  }
+  if(a.k==='break'){
+    if(g.status!=='play'||!g.st||g.st.phase!=='move') return;
+    if(a.seq!=null&&a.seq!==g.seq) return;
+    const st=g.st, p=actor(st); if(g.players[p]?.id!==id||!canBreak(st,p)) return;
+    const w=breakable(st,p).find(x=>a.w&&x.t===a.w.t&&x.i===a.w.i); if(!w) return;
+    const ns=clone(st); doBreak(ns,w); bump(ns); return;
+  }
   if(!amHost) return;
   switch(a.k){
     case 'settings': if(g.status==='lobby'){ game={...g,settings:{...g.settings,...a.patch}}; broadcast(); } return;
     case 'start': {
       if(g.status!=='lobby') return;
-      const ps=seats.filter(s=>s.on!==false).slice(0,8).map(s=>({id:s.id,name:s.name||'이름 없음'}));
+      const ps=seats.filter(s=>s.on!==false).slice(0,10).map(s=>({id:s.id,name:s.name||'이름 없음'}));
       if(ps.length<2) return;
       for(let i=ps.length-1;i>0;i--){ const j=Math.random()*(i+1)|0; [ps[i],ps[j]]=[ps[j],ps[i]]; }
       const set=g.settings||{}, N=set.size==='auto'||!set.size?autoSize(ps.length):set.size;
-      game={...g,status:'play',players:ps,st:newState(ps.length,N,set.stones||2),seq:(g.seq||0)+1}; broadcast(); return;
+      game={...g,status:'play',players:ps,st:newState(ps.length,N,set.stones||2,set.breaks??1),seq:(g.seq||0)+1}; broadcast(); return;
     }
     case 'skip': if(g.status==='play'&&g.st&&g.st.phase!=='over'){ const ns=clone(g.st); skipTurn(ns); bump(ns); } return;
     case 'kick': if(g.status==='play'&&g.st&&g.st.phase==='move'){ const ns=clone(g.st); ns.out[actor(ns)]=1; ns.last=null; advance(ns); bump(ns); } return;
