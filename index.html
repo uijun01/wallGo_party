@@ -51,6 +51,9 @@ input.code{text-transform:uppercase;letter-spacing:5px;text-align:center;font-we
 .pl .tag.off{color:#b4302a}
 .pl.turn{background:#fff;box-shadow:inset 0 0 0 2px var(--c)}
 .pl.out{opacity:.45}
+.xbtn{border:0;background:none;color:var(--muted);font-size:15px;cursor:pointer;padding:0 4px}
+.xbtn:hover{color:#c4302b}
+.pl select{border:1.5px solid var(--line);border-radius:8px;padding:5px 6px;font:600 13px inherit;font-family:inherit;background:#fff;color:var(--ink)}
 .turnbar{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:13px;background:#fff;box-shadow:inset 0 0 0 2.5px var(--c,#ccc);font-weight:800;font-size:17px}
 .turnbar .sw{width:20px;height:20px;border-radius:50%;background:var(--c);flex:none}
 .turnbar .sub{font-size:13px;color:var(--muted);font-weight:600;margin-top:2px}
@@ -96,6 +99,8 @@ svg.board g.slot:hover rect.slotvis{opacity:.85!important}
   <ul><li>한 게임에 정해진 횟수만큼, 내 차례에 내 말과 맞닿은 벽 하나를 부술 수 있어요. 누구의 벽이든 돼요.</li><li>부순 다음에는 평소처럼 말을 움직이고 벽을 세워요.</li><li>혼자 갇혀 영역이 확정됐어도, 부수기가 남아 있으면 차례가 와서 탈출할 수 있어요.</li></ul>
   <h3>3. 끝과 점수</h3>
   <ul><li>모든 구역이 한 사람의 말만 품게 되면 게임이 끝나요.</li><li>내 말만 있는 구역의 칸 수가 점수예요. 말이 없는 구역은 누구의 것도 아니에요.</li><li>점수가 같으면 가장 큰 구역 하나가 더 넓은 사람이 이겨요.</li><li>내 말이 모두 혼자 갇히면 영역이 확정되고, 이후 차례는 자동으로 건너뛰어요.</li></ul>
+  <h3>🤖 AI 플레이어</h3>
+  <ul><li>온라인: 방장이 대기실에서 AI를 추가해요 (쉬움·보통·어려움). AI 수는 방장 컴퓨터가 계산해요.</li><li>한 컴퓨터: 자리마다 사람이나 AI를 골라요.</li></ul>
   <h3>조작</h3>
   <ul><li>내 말 클릭 → 갈 칸 클릭 (말을 한 번 더 누르면 제자리) → 벽 세울 변 클릭 → 확정</li><li>단축키: <b>Enter</b> 확정, <b>Esc</b> 취소</li></ul>
   <h3>판 크기 (자동)</h3>
@@ -241,6 +246,98 @@ function skipTurn(st){
 const clone=o=>JSON.parse(JSON.stringify(o));
 
 
+// ================= AI =================
+function voronoi(st){
+  const N=st.N, NN=N*N, dist=new Int16Array(NN).fill(-1), own=new Int32Array(NN);
+  let q=[];
+  st.stones.forEach(s=>{ const i=s.r*N+s.c; if(dist[i]<0){ dist[i]=0; q.push(i); } own[i]|=1<<s.p; });
+  let d=0;
+  while(q.length){
+    const nq=[];
+    for(const cur of q){
+      const r=(cur/N)|0, c=cur%N;
+      for(const [dr,dc] of D4){
+        if(wallBetween(st,r,c,dr,dc)!==0) continue;
+        const nx=(r+dr)*N+c+dc;
+        if(dist[nx]<0){ dist[nx]=d+1; own[nx]=own[cur]; nq.push(nx); }
+        else if(dist[nx]===d+1) own[nx]|=own[cur];
+      }
+    }
+    q=nq; d++;
+  }
+  const share=new Float64Array(st.P);
+  for(let i=0;i<NN;i++){
+    const m=own[i]; if(!m) continue;
+    let cnt=0; for(let p=0;p<st.P;p++) if(m>>p&1) cnt++;
+    for(let p=0;p<st.P;p++) if(m>>p&1) share[p]+=1/cnt;
+  }
+  return share;
+}
+function evalFor(st,p){
+  if(st.phase==='over'){
+    const s=st.result.score; let mo=0;
+    for(let q=0;q<st.P;q++) if(q!==p) mo=Math.max(mo,s[q]);
+    return 1000+(s[p]-mo)*10;
+  }
+  const v=voronoi(st); let mo=0;
+  for(let q=0;q<st.P;q++) if(q!==p) mo=Math.max(mo,v[q]);
+  const conf = st.phase==='move' ? tally(st).score[p] : 0;
+  return v[p] + 0.4*conf - 0.15*mo;
+}
+function allMoves(st,p){
+  const out=[];
+  st.stones.forEach((s,i)=>{ if(s.p!==p) return; for(const d of reach(st,i)) for(const sl of slots(st,d)) out.push({s:i,dest:d,slot:sl}); });
+  return out;
+}
+function simMove(st,m){ const ns=clone(st); doMove(ns,m.s,m.dest,m.slot); return ns; }
+function aiBest(st,p,lvl,deep){
+  const noise = lvl===0?5:lvl===1?0.8:0.05;
+  const sc=allMoves(st,p).map(m=>{ const ns=simMove(st,m); return {m,ns,v:evalFor(ns,p)+Math.random()*noise}; });
+  if(!sc.length) return null;
+  sc.sort((a,b)=>b.v-a.v);
+  if(deep){
+    const top=sc.slice(0,10);
+    for(const x of top){
+      const ns=x.ns;
+      if(ns.phase==='over'||ns.turn===p) continue;
+      const q=ns.turn; let bestR=null, bv=-1e9;
+      for(const r of allMoves(ns,q)){ const n2=simMove(ns,r); const v=evalFor(n2,q); if(v>bv){ bv=v; bestR=n2; } }
+      if(bestR) x.v=evalFor(bestR,p)+Math.random()*noise;
+    }
+    top.sort((a,b)=>b.v-a.v);
+    return top[0];
+  }
+  return sc[0];
+}
+// returns {place}|{pass:true}|{brk?, move}
+function aiPick(st,lvl){
+  const p=actor(st);
+  if(st.phase==='place'){
+    const occ=occMap(st), noise=lvl===0?4:lvl===1?0.6:0.05;
+    let best=-1, bv=-1e9;
+    for(let i=0;i<st.N*st.N;i++){
+      if(occ.has(i)) continue;
+      const ns=clone(st); ns.stones.push({p,r:(i/st.N)|0,c:i%st.N});
+      const v=evalFor(ns,p)+Math.random()*noise;
+      if(v>bv){ bv=v; best=i; }
+    }
+    return {place:best};
+  }
+  const done=tally(st).done[p];
+  const base=aiBest(st,p,lvl,lvl===2&&!done);
+  let choice = base ? {move:base.m, v:base.v} : null;
+  if(canBreak(st,p) && lvl>0 || canBreak(st,p) && !base){
+    for(const w of breakable(st,p)){
+      const sb=clone(st); doBreak(sb,w);
+      const b=aiBest(sb,p,lvl,false);
+      if(b && (!choice || b.v > choice.v + 3)) choice={brk:w, move:b.m, v:b.v};
+    }
+  }
+  if(!choice) return {pass:true};
+  if(done && !choice.brk) return {pass:true};
+  return choice;
+}
+
 
 // ================= App state =================
 const $=id=>document.getElementById(id);
@@ -252,7 +349,8 @@ let view='home', err='', busy=false;
 // online
 let room=null, game=null, seats=[], isHost=false, connState='';
 // local
-let local=null, localHist=[], localSetup={P:6,size:'auto',K:2,B:1,names:[]};
+let local=null, localHist=[], localSetup={P:6,size:'auto',K:2,B:1,names:[],types:[]};
+const LVL=['쉬움','보통','어려움'];
 // selection
 let sel=null;
 let resultShownFor=null, wasMyTurn=false;
@@ -260,7 +358,7 @@ let resultShownFor=null, wasMyTurn=false;
 function cur(){ return view==='local' ? {st:local.st, players:local.players} : (game&&game.st ? {st:game.st, players:game.players} : null); }
 function myTurn(){
   const c=cur(); if(!c||c.st.phase==='over') return false;
-  if(view==='local') return true;
+  if(view==='local') return c.players[actor(c.st)]?.ai==null;
   const a=actor(c.st); return !!(c.players[a] && c.players[a].id===uid);
 }
 
@@ -278,6 +376,7 @@ function render(){
   document.title = mt ? '● 내 차례 · 벽바둑' : '벽바둑 온라인';
   if(mt&&!wasMyTurn) chime();
   wasMyTurn=mt;
+  aiSchedule();
   const b=$('connBadge');
   if(view==='lobby'||view==='game'){
     b.classList.remove('hidden');
@@ -318,7 +417,7 @@ function localSetupHTML(){
     <div class="lbl">1인당 말</div>${segHTML('lsK',[[1,'1개'],[2,'2개'],[3,'3개']],s.K)}
     <div class="lbl">🔨 벽 부수기</div>${segHTML('lsB',[[0,'없음'],[1,'1회'],[2,'2회']],s.B)}
     <div class="lbl">이름 (비워 두면 색 이름)</div>
-    <div class="plist">${Array.from({length:s.P},(_,i)=>`<div class="pl"><span class="sw" style="background:${COLORS[i]}"></span><input type="text" data-ln="${i}" maxlength="10" placeholder="${CNAMES[i]}" value="${esc(s.names[i]||'')}" style="padding:6px 8px;font-size:14px"></div>`).join('')}</div>
+    <div class="plist">${Array.from({length:s.P},(_,i)=>`<div class="pl"><span class="sw" style="background:${COLORS[i]}"></span><input type="text" data-ln="${i}" maxlength="10" placeholder="${s.types[i]!=null&&s.types[i]!=='h'?'AI '+CNAMES[i]:CNAMES[i]}" value="${esc(s.names[i]||'')}" style="padding:6px 8px;font-size:14px;flex:1"><select data-lt="${i}"><option value="h" ${(s.types[i]??'h')==='h'?'selected':''}>사람</option>${LVL.map((l,k)=>`<option value="${k}" ${String(s.types[i])===String(k)?'selected':''}>AI ${l}</option>`).join('')}</select></div>`).join('')}</div>
     <div style="height:16px"></div>
     <div class="row"><button class="btn sec" id="backBtn">뒤로</button><button class="btn" id="lsStart">게임 시작</button></div>
   </div></div>`;
@@ -338,7 +437,8 @@ function lobbyHTML(){
     </div>
     <div class="card">
       <h2>참가자 ${active.length}/10</h2>
-      <div class="plist">${active.map((s,i)=>`<div class="pl"><span class="sw" style="background:${i<10?COLORS[i]:'#bbb'}"></span><span class="nm">${esc(s.name||'이름 없음')}</span>${s.id===game.host?'<span class="tag">방장</span>':''}${s.id===uid?'<span class="tag">나</span>':''}${i>=10?'<span class="tag">대기</span>':''}</div>`).join('')||'<div class="note">아직 아무도 없어요</div>'}</div>
+      <div class="plist">${active.map((s,i)=>`<div class="pl"><span class="sw" style="background:${i<10?COLORS[i]:'#bbb'}"></span><span class="nm">${esc(s.name||'이름 없음')}</span>${s.id===game.host?'<span class="tag">방장</span>':''}${s.id===uid?'<span class="tag">나</span>':''}${s.ai!=null?'<span class="tag">🤖 '+LVL[s.ai]+'</span>':''}${i>=10?'<span class="tag">대기</span>':''}${amHost&&s.ai!=null?`<button class="xbtn" data-rmai="${esc(s.id)}" title="AI 빼기">✕</button>`:''}</div>`).join('')||'<div class="note">아직 아무도 없어요</div>'}</div>
+      ${amHost?`<div class="lbl">🤖 AI 추가</div><div class="row">${LVL.map((l,k)=>`<button class="btn sec small" data-addai="${k}" ${active.length>=10?'disabled':''}>+ ${l}</button>`).join('')}</div>`:''}
       <div class="note" style="margin-top:8px">색과 순서는 시작할 때 무작위로 정해져요.</div>
       <div class="lbl">판 크기</div>${segHTML('rsN',[['auto','자동 ('+autoSize(Math.max(n,2))+')'],[7,'7×7'],[9,'9×9'],[11,'11×11'],[13,'13×13']],st.size||'auto',!amHost)}
       <div class="lbl">1인당 말</div>${segHTML('rsK',[[1,'1개'],[2,'2개'],[3,'3개']],st.stones||2,!amHost)}
@@ -386,7 +486,7 @@ function gameHTML(){
     ${view==='game'&&connState==='bad'?`<div class="banner">방장과 연결이 끊겼어요. 다시 연결하는 중이에요…</div>`:''}
     <div class="card" style="padding:16px">
       <h2 style="display:flex;justify-content:space-between;margin-bottom:10px"><span>확정 영역</span><span class="note" style="font-weight:600">${st.N}×${st.N}${view==='game'?' · 방 '+esc(room):''}</span></h2>
-      <div class="plist">${players.map((pl,p)=>`<div class="pl ${p===a?'turn':''} ${st.out[p]?'out':''}" style="--c:${COLORS[p]}"><span class="sw" style="background:${COLORS[p]}"></span><span class="nm">${name(p)}</span>${view==='game'&&pl.id===uid?'<span class="tag">나</span>':''}${offline(pl.id)?'<span class="tag off">연결 끊김</span>':''}${st.phase==='move'&&t.done[p]&&!st.out[p]?'<span class="tag">완성</span>':''}${st.out[p]?'<span class="tag">제외</span>':''}${st.phase!=='over'&&(st.brk||[])[p]>0?'<span class="tag" title="벽 부수기 남음">🔨'+st.brk[p]+'</span>':''}<span class="sc">${t.score[p]}</span></div>`).join('')}</div>
+      <div class="plist">${players.map((pl,p)=>`<div class="pl ${p===a?'turn':''} ${st.out[p]?'out':''}" style="--c:${COLORS[p]}"><span class="sw" style="background:${COLORS[p]}"></span><span class="nm">${name(p)}</span>${view==='game'&&pl.id===uid?'<span class="tag">나</span>':''}${pl.ai!=null?'<span class="tag">🤖 '+LVL[pl.ai]+'</span>':''}${offline(pl.id)?'<span class="tag off">연결 끊김</span>':''}${st.phase==='move'&&t.done[p]&&!st.out[p]?'<span class="tag">완성</span>':''}${st.out[p]?'<span class="tag">제외</span>':''}${st.phase!=='over'&&(st.brk||[])[p]>0?'<span class="tag" title="벽 부수기 남음">🔨'+st.brk[p]+'</span>':''}<span class="sc">${t.score[p]}</span></div>`).join('')}</div>
       <div class="note" style="margin-top:8px">숫자는 지금 내 말만 있는 구역의 칸 수예요.</div>
     </div>
     ${view==='local'?`<div class="row"><button class="btn sec small" id="undoBtn" ${localHist.length?'':'disabled'}>무르기</button><button class="btn sec small" id="exitBtn">그만하기</button></div>`:''}
@@ -511,6 +611,9 @@ function bind(){
   segs('rsB',v=>send({k:'settings',patch:{breaks:+v}}));
   on('passBtn',()=>{ if(view==='local'){ localHist.push(local.st); const ns=clone(local.st); doPass(ns); local.st=ns; sel=null; render(); } else send({k:'pass',seq:game.seq}); });
   on('brkBtn',()=>{ sel = sel&&sel.brk ? null : {brk:true}; render(); });
+  document.querySelectorAll('[data-lt]').forEach(sl=>sl.onchange=()=>{ localSetup.types[+sl.dataset.lt]=sl.value==='h'?'h':+sl.value; render(); });
+  document.querySelectorAll('[data-addai]').forEach(b=>b.onclick=()=>send({k:'addai',lvl:+b.dataset.addai}));
+  document.querySelectorAll('[data-rmai]').forEach(b=>b.onclick=()=>send({k:'rmai',id:b.dataset.rmai}));
   document.querySelectorAll('[data-ln]').forEach(inp=>inp.oninput=()=>{ localSetup.names[+inp.dataset.ln]=inp.value.trim(); });
   on('backBtn',()=>{ view='home'; render(); });
   on('lsStart',startLocal);
@@ -522,8 +625,11 @@ function bind(){
   const svg=$('board'); if(svg) svg.onclick=onBoard;
   on('cancelBtn',cancelSel);
   on('okBtn',commit);
-  on('undoBtn',()=>{ if(!localHist.length) return; local.st=localHist.pop(); sel=null; resultShownFor=null; render(); });
-  on('exitBtn',()=>{ local=null; localHist=[]; sel=null; view='localsetup'; render(); });
+  on('undoBtn',()=>{ if(!localHist.length) return; clearTimeout(aiTimer); aiKey=null;
+    local.st=localHist.pop();
+    while(localHist.length && local.st.phase!=='over' && local.players[actor(local.st)]?.ai!=null) local.st=localHist.pop();
+    sel=null; resultShownFor=null; render(); });
+  on('exitBtn',()=>{ clearTimeout(aiTimer); aiKey=null; local=null; localHist=[]; sel=null; view='localsetup'; render(); });
   on('skipBtn',()=>send({k:'skip'}));
   on('kickBtn',()=>send({k:'kick'}));
   on('lobbyBtn',()=>send({k:'lobby'}));
@@ -584,10 +690,43 @@ function commit(){
   sel=null; render();
 }
 
+// ================= AI runner =================
+let aiTimer=null, aiKey=null;
+function aiCtx(){
+  if(view==='local'&&local) return {st:local.st, players:local.players, key:'L'+localHist.length+'_'+local.st.moves+'_'+local.st.pi+'_'+(local.st.broke?1:0)};
+  if(view==='game'&&isHost&&game&&game.status==='play'&&game.st) return {st:game.st, players:game.players, key:'G'+room+game.seq};
+  return null;
+}
+function aiSchedule(){
+  const c=aiCtx(); if(!c||c.st.phase==='over') return;
+  const pl=c.players[actor(c.st)]; if(!pl||pl.ai==null) return;
+  if(aiKey===c.key) return;
+  aiKey=c.key; clearTimeout(aiTimer);
+  aiTimer=setTimeout(()=>runAI(c.key), 450+Math.random()*450);
+}
+function runAI(key){
+  const c=aiCtx(); if(!c||c.key!==key||c.st.phase==='over') return;
+  const pl=c.players[actor(c.st)]; if(!pl||pl.ai==null) return;
+  let pick; try{ pick=aiPick(c.st,pl.ai); }catch(e){ console.error(e); pick={pass:true}; }
+  if(view==='local'){
+    localHist.push(local.st); const ns=clone(local.st);
+    if(pick.place!=null) doPlace(ns,pick.place);
+    else if(pick.pass) doPass(ns);
+    else { if(pick.brk) doBreak(ns,pick.brk); doMove(ns,pick.move.s,pick.move.dest,pick.move.slot); }
+    local.st=ns; render();
+  } else {
+    const id=pl.id;
+    if(pick.place!=null) hostApply(id,{k:'place',cell:pick.place});
+    else if(pick.pass) hostApply(id,{k:'pass'});
+    else { if(pick.brk) hostApply(id,{k:'break',w:pick.brk}); hostApply(id,{k:'move',s:pick.move.s,dest:pick.move.dest,slot:pick.move.slot}); }
+  }
+}
+
 // ================= Local =================
 function startLocal(){
   const s=localSetup, N=s.size==='auto'?autoSize(s.P):s.size;
-  local={players:Array.from({length:s.P},(_,i)=>({name:s.names[i]||CNAMES[i]})), st:newState(s.P,N,s.K,s.B)};
+  local={players:Array.from({length:s.P},(_,i)=>{ const t=s.types[i]??'h', ai=t==='h'?null:t; return {name:s.names[i]||(ai!=null?'AI '+CNAMES[i]:CNAMES[i]), ai}; }), st:newState(s.P,N,s.K,s.B)};
+  aiKey=null;
   localHist=[]; sel=null; resultShownFor=null; view='local'; render();
 }
 
@@ -621,7 +760,7 @@ function startHost(code, restore, tries){
   let opened=false;
   p.on('open',()=>{
     opened=true; peer=p; isHost=true; room=code; busy=false; connState='ok'; retries=0;
-    if(restore){ game=restore.game; seats=restore.seats.map(s=>({...s,on:s.id===uid})); }
+    if(restore){ game=restore.game; seats=restore.seats.map(s=>({...s,on:s.id===uid||s.ai!=null})); }
     else{ game={code,host:uid,status:'lobby',settings:{size:'auto',stones:2,breaks:1},players:[],st:null,seq:0}; seats=[{id:uid,name:myName,at:Date.now(),on:true}]; }
     LS.set('wg_room',code);
     view = game.status==='play'&&game.st ? 'game':'lobby';
@@ -715,10 +854,12 @@ function hostApply(id,a){
   }
   if(!amHost) return;
   switch(a.k){
+    case 'addai': if(g.status==='lobby' && seats.filter(s=>s.on!==false).length<10){ const n=seats.filter(s=>s.ai!=null).length+1; const lvl=Math.max(0,Math.min(2,a.lvl|0)); seats.push({id:'ai-'+Math.random().toString(36).slice(2,8),name:'AI '+n,ai:lvl,at:Date.now(),on:true}); broadcast(); } return;
+    case 'rmai': if(g.status==='lobby'){ seats=seats.filter(s=>!(s.id===a.id&&s.ai!=null)); broadcast(); } return;
     case 'settings': if(g.status==='lobby'){ game={...g,settings:{...g.settings,...a.patch}}; broadcast(); } return;
     case 'start': {
       if(g.status!=='lobby') return;
-      const ps=seats.filter(s=>s.on!==false).slice(0,10).map(s=>({id:s.id,name:s.name||'이름 없음'}));
+      const ps=seats.filter(s=>s.on!==false).slice(0,10).map(s=>({id:s.id,name:s.name||'이름 없음',...(s.ai!=null?{ai:s.ai}:{})}));
       if(ps.length<2) return;
       for(let i=ps.length-1;i>0;i--){ const j=Math.random()*(i+1)|0; [ps[i],ps[j]]=[ps[j],ps[i]]; }
       const set=g.settings||{}, N=set.size==='auto'||!set.size?autoSize(ps.length):set.size;
